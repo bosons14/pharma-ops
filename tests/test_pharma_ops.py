@@ -267,10 +267,41 @@ class TestQSAR:
 
     def test_negative_r2_with_good_rank_is_explained(self):
         msg = qsar.QSARModel._interpret(
-            {"task": "regression", "r2": -0.7, "spearman": 0.65}
+            {"task": "regression", "split": "scaffold", "r2": -0.7, "spearman": 0.65}
         )
         assert "not calibrated" in msg.lower()
         assert "rank" in msg.lower()
+
+    def test_random_split_verdict_warns_of_inflation(self):
+        msg = qsar.QSARModel._interpret(
+            {"task": "regression", "split": "random", "r2": 0.73, "spearman": 0.86}
+        )
+        assert "RANDOM SPLIT" in msg
+        assert "upper bound" in msg.lower()
+        assert "not an estimate" in msg.lower()
+
+    def test_random_split_never_claims_held_out_scaffolds(self):
+        """The bug this guards: a random-split run described as a scaffold one."""
+        for task, extra in (("regression", {"r2": 0.73, "spearman": 0.86}),
+                            ("classification", {"roc_auc": 0.91})):
+            msg = qsar.QSARModel._interpret({"task": task, "split": "random", **extra})
+            assert "held-out scaffolds" not in msg
+            assert "RANDOM SPLIT" in msg
+
+    def test_scaffold_split_verdict_has_no_inflation_warning(self):
+        msg = qsar.QSARModel._interpret(
+            {"task": "regression", "split": "scaffold", "r2": 0.63, "spearman": 0.80}
+        )
+        assert "RANDOM SPLIT" not in msg
+        assert "held-out scaffolds" in msg
+
+    def test_fitted_model_verdict_matches_the_split_that_ran(self):
+        df = pd.read_csv(os.path.join(EXAMPLES, "sample_actives.csv"))
+        smis, ys = df["smiles"].tolist(), df["pchembl"].tolist()
+        scaf = qsar.QSARModel(n_estimators=40).fit(smis, ys, split="scaffold")
+        rand = qsar.QSARModel(n_estimators=40).fit(smis, ys, split="random")
+        assert "RANDOM SPLIT" not in scaf["interpretation"]
+        assert "RANDOM SPLIT" in rand["interpretation"]
 
 
 # --------------------------------------------------------------- receptor

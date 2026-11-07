@@ -194,22 +194,45 @@ class QSARModel:
 
     @staticmethod
     def _interpret(m: dict) -> str:
+        """Plain-English verdict on the metrics, honest about which split ran.
+
+        A random split puts analogues of training compounds in the test set, so
+        its numbers measure recognition as much as generalisation. They are an
+        upper bound, not an estimate of performance on new chemistry, and this
+        says so rather than letting a flattering number pass unlabelled.
+        """
+        random_split = m.get("split") == "random"
+        # Only a scaffold split holds out whole skeletons, so only it may claim so.
+        unseen = "held-out compounds" if random_split else "held-out scaffolds"
+        core = QSARModel._verdict(m, unseen)
+        if not random_split:
+            return core
+        return (
+            "RANDOM SPLIT -- these numbers are optimistic and are NOT an estimate of "
+            "performance on new chemistry: analogues of the training compounds sit in "
+            f"the test set, so the model is partly being rewarded for recognising "
+            f"scaffolds it has already seen. Read them as an upper bound. {core} "
+            "Re-run with the default --split scaffold for the honest figure."
+        )
+
+    @staticmethod
+    def _verdict(m: dict, unseen: str) -> str:
         if m["task"] == "classification":
             auc = m.get("roc_auc")
             if auc is None:
-                return "test set too small or single-class to score; treat the model as unvalidated"
+                return "Test set too small or single-class to score; treat the model as unvalidated."
             if auc >= 0.85:
-                return "strong ranking on held-out scaffolds; usable for prioritisation"
+                return f"Strong ranking on {unseen}; usable for prioritisation."
             if auc >= 0.70:
-                return "moderate; useful for coarse triage, not for go/no-go decisions"
-            return "weak; the model is close to guessing on new scaffolds -- do not rely on it"
+                return "Moderate; useful for coarse triage, not for go/no-go decisions."
+            return f"Weak; the model is close to guessing on {unseen} -- do not rely on it."
         r2, rho = m.get("r2"), m.get("spearman")
         if r2 is None:
-            return "test set too small to score; treat the model as unvalidated"
+            return "Test set too small to score; treat the model as unvalidated."
         if r2 >= 0.5:
-            return "reasonable for a scaffold split; usable for ranking within ~1 log unit"
+            return f"Reasonable performance on {unseen}; usable for ranking within ~1 log unit."
         if r2 >= 0.2:
-            return "weak but non-random; use rank order only, never the absolute values"
+            return "Weak but non-random; use rank order only, never the absolute values."
         # Negative R2 with decent rank correlation is common on scaffold splits:
         # the model has the ordering roughly right but the absolute scale wrong.
         if rho is not None and rho >= 0.4:
@@ -218,7 +241,7 @@ class QSARModel:
                 f"quote them as potencies. Rank correlation is usable (Spearman {rho}), so "
                 "the model can order a library, which is all you need for picking what to assay."
             )
-        return "no useful signal on new scaffolds -- more or more diverse data needed"
+        return f"No useful signal on {unseen} -- more or more diverse data needed."
 
     # -- prediction -------------------------------------------------------
 
