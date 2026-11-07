@@ -1,0 +1,22 @@
+{
+  "name": "pharma-ops",
+  "version": "0.1.0",
+  "description": "Early-stage drug discovery toolkit: compound triage and ADMET proxies, target-to-hit QSAR modelling from ChEMBL, and structure-based virtual screening with AutoDock Vina.",
+  "author": {
+    "name": "Subhendra Basu",
+    "url": "https://github.com/bosons14"
+  },
+  "homepage": "https://github.com/bosons14/pharma-ops",
+  "repository": "https://github.com/bosons14/pharma-ops",
+  "license": "MIT",
+  "keywords": [
+    "cheminformatics",
+    "drug-discovery",
+    "rdkit",
+    "qsar",
+    "docking",
+    "admet",
+    "chembl",
+    "virtual-screening"
+  ]
+}

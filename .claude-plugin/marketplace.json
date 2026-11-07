@@ -1,0 +1,16 @@
+{
+  "name": "pharma-ops",
+  "owner": {
+    "name": "Subhendra Basu",
+    "url": "https://github.com/bosons14"
+  },
+  "plugins": [
+    {
+      "name": "pharma-ops",
+      "source": "./",
+      "description": "Early-stage drug discovery: compound triage and ADMET proxies, target-to-hit QSAR from ChEMBL, and AutoDock Vina virtual screening.",
+      "version": "0.1.0",
+      "category": "science"
+    }
+  ]
+}

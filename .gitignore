@@ -1,0 +1,24 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.venv/
+venv/
+
+# tool outputs
+triage.csv
+triage.html
+triage_summary.json
+*_out/
+dock_out/
+t2h_out/
+poses/
+ligands/
+
+# generated fixtures
+examples/sample_actives.csv
+examples/sample_library.smi
+examples/sample_triage_library.smi
+examples/sample_receptor.pdb
