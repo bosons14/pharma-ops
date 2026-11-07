@@ -286,6 +286,19 @@ Provides three skills (`compound-triage`, `target-to-hit`,
 `/dock`). The skills carry the interpretation guidance, so Claude reports
 model metrics and the redocking control before showing any ranking.
 
+**The plugin ships the skills and the Python source, but installing it does
+not put the `pharma-ops` command on your PATH.** The skills handle this
+themselves on first use:
+
+```bash
+pharma-ops info || pip install -e "${CLAUDE_PLUGIN_ROOT}"
+```
+
+You can also just `pip install -e .` from a clone, as above. Either way,
+`pharma-ops info` is the one command to run when something is not working:
+it reports dependency versions, the Vina path, and data-source
+reachability.
+
 ---
 
 ## Development

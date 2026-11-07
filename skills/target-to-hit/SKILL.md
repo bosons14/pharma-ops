@@ -16,6 +16,20 @@ candidates.
 - They need a structure to dock into (this fetches it; `virtual-screening`
   does the docking).
 
+## First run: make sure the CLI exists
+
+Installing the plugin ships these instructions and the Python source, but it
+does not install the `pharma-ops` command. Before the first call in a
+session, check:
+
+```bash
+pharma-ops info || pip install -e "${CLAUDE_PLUGIN_ROOT}"
+```
+
+`pharma-ops info` also reports whether ChEMBL, RCSB and AlphaFold are
+reachable. If they are not, go straight to the `--actives-file` route rather
+than letting a network call fail mid-run.
+
 ## Running it
 
 ```bash

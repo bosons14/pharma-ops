@@ -10,17 +10,22 @@ controls that make the ranking worth anything.
 
 ## Prerequisites
 
-Vina is not bundled. Check first:
+Two things are needed and neither comes with the plugin: the `pharma-ops`
+CLI itself, and the Vina binary. Check both before the first call:
 
 ```bash
-pharma-ops info
+pharma-ops info || pip install -e "${CLAUDE_PLUGIN_ROOT}"
 ```
 
-If it is missing:
+`pharma-ops info` prints the Vina path, or says it is not found. If it is
+missing:
+
 ```bash
 conda install -c conda-forge vina      # or: smina, then --vina-exe smina
 pip install meeko gemmi                # ligand PDBQT preparation
 ```
+
+Docking cannot run without Vina. Say so and stop rather than attempting it.
 
 ## Running it
 

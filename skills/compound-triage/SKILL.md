@@ -16,6 +16,19 @@ expensive work goes to the compounds most likely to survive it.
 - They want PAINS or reactive-group flags.
 - Output from `target2hit` or `dock` needs a drug-likeness sanity pass.
 
+## First run: make sure the CLI exists
+
+Installing the plugin ships these instructions and the Python source, but it
+does not install the `pharma-ops` command. Before the first call in a
+session, check:
+
+```bash
+pharma-ops info || pip install -e "${CLAUDE_PLUGIN_ROOT}"
+```
+
+`pharma-ops info` also reports RDKit's version, so a success means the
+cheminformatics stack is ready.
+
 ## Running it
 
 ```bash
