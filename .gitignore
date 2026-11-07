@@ -22,3 +22,6 @@ examples/sample_actives.csv
 examples/sample_library.smi
 examples/sample_triage_library.smi
 examples/sample_receptor.pdb
+
+# icon is generated but committed deliberately (plugin listing asset)
+!.claude-plugin/icon.png

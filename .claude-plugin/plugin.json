@@ -6,6 +6,7 @@
     "name": "Subhendra Basu",
     "url": "https://github.com/bosons14"
   },
+  "icon": "./.claude-plugin/icon.png",
   "homepage": "https://github.com/bosons14/pharma-ops",
   "repository": "https://github.com/bosons14/pharma-ops",
   "license": "MIT",

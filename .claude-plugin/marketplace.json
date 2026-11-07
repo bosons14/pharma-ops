@@ -1,5 +1,6 @@
 {
   "name": "pharma-ops",
+  "description": "Open-source computational chemistry tooling for early-stage drug discovery, built on RDKit, scikit-learn and AutoDock Vina over public ChEMBL and PDB data.",
   "owner": {
     "name": "Subhendra Basu",
     "url": "https://github.com/bosons14"

@@ -267,7 +267,14 @@ disagreement between them is informative.
 
 ## Claude Code plugin
 
-The repo is also a Claude Code plugin. Add it as a marketplace:
+The repo is also a Claude Code plugin, and is its own marketplace. On Claude
+Code 2.1.275 or later this is one step:
+
+```
+/plugin install pharma-ops --marketplace bosons14/pharma-ops
+```
+
+On older versions, add the marketplace first:
 
 ```
 /plugin marketplace add bosons14/pharma-ops
