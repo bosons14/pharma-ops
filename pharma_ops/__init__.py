@@ -13,6 +13,6 @@ open-source software (RDKit, scikit-learn, AutoDock Vina). The outputs are
 safety or efficacy in humans. See README for the stated limitations.
 """
 
-__version__ = "0.1.1"
+__version__ = "0.1.2"
 
 __all__ = ["__version__"]

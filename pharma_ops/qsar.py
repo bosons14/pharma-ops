@@ -45,8 +45,70 @@ log = logging.getLogger("pharma_ops.qsar")
 
 
 # ----------------------------------------------------------------------------
-# Splitting
+# Split protocols
 # ----------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class SplitSpec:
+    """What a split protocol does, and therefore what may be claimed about it.
+
+    Verdict wording is derived from this record rather than written by hand at
+    the point of reporting. A split that does not declare how it should be
+    described cannot run (see ``resolve_split``), so a result can never be
+    labelled with a protocol other than the one that produced it.
+
+    This exists because the alternative failed in practice: the wording was
+    once hardcoded, and a random-split run was reported as a scaffold split --
+    which put the reassuring label on the inflated number, the precise
+    inversion this module is written to prevent.
+    """
+
+    name: str
+    held_out: str          # noun phrase for what the test set withholds
+    optimistic: bool       # does it leave analogues of training data in test?
+    description: str
+    caveat: str = ""       # prepended to the verdict when optimistic
+
+
+SPLITS: dict[str, SplitSpec] = {
+    "scaffold": SplitSpec(
+        name="scaffold",
+        held_out="held-out scaffolds",
+        optimistic=False,
+        description="whole Bemis-Murcko scaffold groups assigned to one side only",
+    ),
+    "random": SplitSpec(
+        name="random",
+        held_out="held-out compounds",
+        optimistic=True,
+        description="compounds assigned independently of scaffold",
+        caveat=(
+            "RANDOM SPLIT -- these numbers are optimistic and are NOT an estimate of "
+            "performance on new chemistry: analogues of the training compounds sit in "
+            "the test set, so the model is partly being rewarded for recognising "
+            "scaffolds it has already seen. Read them as an upper bound."
+        ),
+    ),
+}
+
+
+def resolve_split(split: str | None) -> SplitSpec:
+    """Look up a split protocol, refusing anything undeclared.
+
+    Failing here is deliberate. Previously an unrecognised name fell through to
+    random partitioning while the report still described a scaffold split, so
+    the run and its label disagreed silently. A protocol with no SplitSpec has
+    no agreed wording, so it does not run.
+    """
+    spec = SPLITS.get(split or "")
+    if spec is None:
+        raise ValueError(
+            f"unknown split protocol {split!r}; valid options are "
+            f"{sorted(SPLITS)}. Add a SplitSpec for a new protocol so its "
+            "results can be described accurately."
+        )
+    return spec
 
 
 def murcko_scaffold(smiles: str) -> str:
@@ -129,11 +191,15 @@ class QSARModel:
                 "(and realistically 100+) to fit anything meaningful"
             )
 
+        # Validate the protocol before anything runs, so the metadata can never
+        # describe a split that did not happen.
+        spec = resolve_split(split)
+
         smiles_k = [smiles[i] for i in keep]
         y_arr = np.asarray([y[i] for i in keep], dtype=float)
         X = featurise(mols, self.radius, self.n_bits)
 
-        if split == "scaffold":
+        if spec.name == "scaffold":
             tr, te = scaffold_split(smiles_k, test_frac, self.seed)
         else:
             rng = np.random.default_rng(self.seed)
@@ -168,7 +234,10 @@ class QSARModel:
         pred = est.predict(X[te])
         m: dict = {
             "task": self.task,
-            "split": split,
+            "split": spec.name,
+            "split_description": spec.description,
+            "split_is_optimistic": spec.optimistic,
+            "ad_threshold": self.ad_threshold,
             "n_total": len(smiles_k),
             "n_train": int(len(tr)),
             "n_test": int(len(te)),
@@ -201,17 +270,19 @@ class QSARModel:
         upper bound, not an estimate of performance on new chemistry, and this
         says so rather than letting a flattering number pass unlabelled.
         """
-        random_split = m.get("split") == "random"
-        # Only a scaffold split holds out whole skeletons, so only it may claim so.
-        unseen = "held-out compounds" if random_split else "held-out scaffolds"
-        core = QSARModel._verdict(m, unseen)
-        if not random_split:
+        try:
+            spec = resolve_split(m.get("split"))
+        except ValueError:
+            # Metrics from an unrecognised protocol: describe nothing.
+            return (
+                f"Split protocol {m.get('split')!r} is not recognised, so these metrics "
+                "cannot be characterised. Treat the model as unvalidated."
+            )
+        core = QSARModel._verdict(m, spec.held_out)
+        if not spec.optimistic:
             return core
         return (
-            "RANDOM SPLIT -- these numbers are optimistic and are NOT an estimate of "
-            "performance on new chemistry: analogues of the training compounds sit in "
-            f"the test set, so the model is partly being rewarded for recognising "
-            f"scaffolds it has already seen. Read them as an upper bound. {core} "
+            f"{spec.caveat} {core} "
             "Re-run with the default --split scaffold for the honest figure."
         )
 
@@ -279,7 +350,7 @@ class QSARModel:
                         "nn_similarity": round(float(sims[j]), 3),
                         "nn_train_smiles": nn[j],
                         "in_applicability_domain": in_domain,
-                        "confidence": _conf(sims[j]),
+                        "confidence": _conf(sims[j], self.ad_threshold),
                     }
                 )
 
@@ -304,14 +375,26 @@ class QSARModel:
         return sim.max(axis=1), [self.train_smiles[i] for i in best]
 
 
-def _conf(sim: float) -> str:
-    if sim >= 0.7:
+def _conf(sim: float, threshold: float = 0.30) -> str:
+    """Confidence wording, with its bands derived from the domain threshold.
+
+    The bands used to be fixed at 0.70/0.45/0.30 while ``in_applicability_domain``
+    read the configurable ``ad_threshold``. At a threshold of 0.70 a similarity
+    of 0.55 was therefore reported as out of domain AND "medium" confidence, in
+    the same row. Deriving the bands from the threshold makes that
+    contradiction unrepresentable.
+    """
+    if sim < threshold:
+        return "out of domain (extrapolation, not a prediction)"
+    span = 1.0 - threshold
+    if span <= 0:
         return "high (close analogue in training set)"
-    if sim >= 0.45:
+    over = (sim - threshold) / span
+    if over >= 0.66:
+        return "high (close analogue in training set)"
+    if over >= 0.33:
         return "medium"
-    if sim >= 0.30:
-        return "low"
-    return "out of domain (extrapolation, not a prediction)"
+    return "low"
 
 
 def _safe(fn, a, b):

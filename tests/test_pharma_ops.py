@@ -295,6 +295,68 @@ class TestQSAR:
         assert "RANDOM SPLIT" not in msg
         assert "held-out scaffolds" in msg
 
+    def test_unknown_split_is_refused_at_fit(self):
+        """A protocol with no SplitSpec must not run: it has no agreed wording."""
+        df = pd.read_csv(os.path.join(EXAMPLES, "sample_actives.csv"))
+        with pytest.raises(ValueError, match="unknown split protocol"):
+            qsar.QSARModel(n_estimators=20).fit(
+                df["smiles"].tolist(), df["pchembl"].tolist(), split="time"
+            )
+
+    def test_every_split_declares_its_own_wording(self):
+        for name, spec in qsar.SPLITS.items():
+            assert spec.name == name
+            assert spec.held_out and spec.description
+            # An optimistic protocol must carry the warning that says so.
+            assert bool(spec.caveat) == spec.optimistic
+
+    def test_no_split_can_be_described_as_another(self):
+        """The original bug, generalised: wording must track the protocol."""
+        for name, spec in qsar.SPLITS.items():
+            msg = qsar.QSARModel._interpret(
+                {"task": "regression", "split": name, "r2": 0.63, "spearman": 0.80}
+            )
+            assert spec.held_out in msg
+            for other in qsar.SPLITS.values():
+                if other.held_out != spec.held_out:
+                    assert other.held_out not in msg
+
+    def test_unrecognised_split_metrics_describe_nothing(self):
+        msg = qsar.QSARModel._interpret(
+            {"task": "regression", "split": "mystery", "r2": 0.9, "spearman": 0.9}
+        )
+        assert "not recognised" in msg
+        assert "unvalidated" in msg
+        assert "held-out scaffolds" not in msg
+
+    def test_confidence_never_contradicts_the_domain_flag(self):
+        """At any threshold, 'out of domain' and a confidence grade must agree."""
+        for thr in (0.20, 0.30, 0.50, 0.70, 0.90):
+            for sim in [i / 100 for i in range(0, 101, 5)]:
+                conf = qsar._conf(sim, thr)
+                in_domain = sim >= thr
+                if in_domain:
+                    assert "out of domain" not in conf, (thr, sim, conf)
+                else:
+                    assert "out of domain" in conf, (thr, sim, conf)
+
+    def test_confidence_bands_scale_with_threshold(self):
+        # The old hardcoded bands put 0.55 at "medium" even when it was below
+        # a 0.70 threshold and therefore out of domain.
+        assert "out of domain" in qsar._conf(0.55, 0.70)
+        assert qsar._conf(0.55, 0.30) == "medium"
+        assert "high" in qsar._conf(0.95, 0.70)
+
+    def test_metrics_carry_the_provenance_the_wording_depends_on(self):
+        df = pd.read_csv(os.path.join(EXAMPLES, "sample_actives.csv"))
+        m = qsar.QSARModel(n_estimators=40, ad_threshold=0.42).fit(
+            df["smiles"].tolist(), df["pchembl"].tolist(), split="random"
+        )
+        assert m["split"] == "random"
+        assert m["split_is_optimistic"] is True
+        assert m["ad_threshold"] == 0.42
+        assert m["split_description"]
+
     def test_fitted_model_verdict_matches_the_split_that_ran(self):
         df = pd.read_csv(os.path.join(EXAMPLES, "sample_actives.csv"))
         smis, ys = df["smiles"].tolist(), df["pchembl"].tolist()
