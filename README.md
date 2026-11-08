@@ -67,6 +67,7 @@ tool 2 works offline via `--actives-file`.
 pharma-ops triage library.smi -o triage
 pharma-ops triage "CC(=O)Oc1ccccc1C(=O)O"
 pharma-ops triage compounds.csv --smiles-col canonical_smiles --alert-free --min-score 60
+pharma-ops triage library.smi --weights qed=0.5 alerts=0.3 sa=0.2
 ```
 
 Input: `.smi`, `.csv`, `.tsv`, `.sdf`, `.sdf.gz`, or a literal SMILES.
@@ -103,7 +104,9 @@ descriptors. They correlate loosely with measured values. Replace them with
 measured data as soon as you have any.
 
 The composite weights are a starting point with no special authority. Retune
-them for your programme.
+them with `--weights qed=0.5 alerts=0.3`; values are rescaled to keep the score
+on 0-100, and every report records which blend produced it. Unknown keys are
+refused rather than ignored.
 
 ---
 

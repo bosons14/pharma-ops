@@ -7,6 +7,7 @@ logic; it does not test Vina's physics, which is Vina's job.
 
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import stat
@@ -192,6 +193,72 @@ class TestTriage:
 
     def test_empty_summary_does_not_crash(self):
         assert triage.summarise(pd.DataFrame({"status": []}))["n_valid"] == 0
+
+    # -- weighting provenance and validation -----------------------------
+
+    def test_default_weights_sum_to_one(self):
+        assert sum(triage.DEFAULT_WEIGHTS.values()) == pytest.approx(1.0)
+
+    def test_score_stays_in_range_whatever_weights_are_passed(self):
+        """The 0-100 range is documented and --min-score filters on it."""
+        row = dict(qed=0.9, sa_score=2.0, n_alerts=0, esol_logs=-1.0,
+                   lipinski_violations=0, veber_violations=0)
+        for mult in (0.01, 0.5, 1.0, 2.0, 100.0):
+            w = {k: v * mult for k, v in triage.DEFAULT_WEIGHTS.items()}
+            assert 0.0 <= triage.composite_score(row, w) <= 100.0
+
+    def test_rescaling_preserves_relative_emphasis(self):
+        row = dict(qed=0.9, sa_score=2.0, n_alerts=1, esol_logs=-3.0,
+                   lipinski_violations=1, veber_violations=0)
+        base = triage.composite_score(row)
+        doubled = triage.composite_score(
+            row, {k: v * 2 for k, v in triage.DEFAULT_WEIGHTS.items()}
+        )
+        assert doubled == pytest.approx(base)
+
+    def test_unknown_weight_key_is_refused_not_ignored(self):
+        """The bug: a typo merged in, was never read, and scored as default."""
+        with pytest.raises(ValueError, match="unknown triage weight"):
+            triage.resolve_weights({"qedd": 0.9})
+
+    def test_negative_and_zero_weights_are_refused(self):
+        with pytest.raises(ValueError, match="non-negative"):
+            triage.resolve_weights({"qed": -0.5})
+        with pytest.raises(ValueError, match="sum to zero"):
+            triage.resolve_weights({k: 0.0 for k in triage.DEFAULT_WEIGHTS})
+
+    def test_bad_weights_fail_before_any_compound_is_scored(self):
+        with pytest.raises(ValueError, match="unknown triage weight"):
+            triage.TriageConfig(weights={"nonsense": 1.0})
+
+    def test_weight_set_records_its_provenance(self):
+        d = triage.resolve_weights(None)
+        assert d.is_default and not d.normalised
+        assert "default weights" in d.describe()
+
+        c = triage.resolve_weights({"qed": 0.6, "alerts": 0.4})
+        assert not c.is_default and c.normalised
+        assert "custom weights" in c.describe()
+        assert "rescaled" in c.describe()
+        assert sum(c.weights.values()) == pytest.approx(1.0)
+
+    def test_summary_says_which_blend_produced_the_scores(self):
+        cfg = triage.TriageConfig(weights={"qed": 0.6, "alerts": 0.4})
+        df = triage.screen(ASPIRIN, cfg=cfg)
+        s = triage.summarise(df, cfg)
+        assert s["weights_are_default"] is False
+        assert s["weights"]["qed"] == pytest.approx(0.4286, abs=1e-3)
+        assert "custom weights" in s["weights_note"]
+
+        dflt = triage.TriageConfig()
+        s2 = triage.summarise(triage.screen(ASPIRIN, cfg=dflt), dflt)
+        assert s2["weights_are_default"] is True
+
+    def test_custom_weights_actually_change_the_score(self):
+        """Guards the silent-no-op: retuning must be observable in the output."""
+        a = triage.screen(ASPIRIN, cfg=triage.TriageConfig())
+        b = triage.screen(ASPIRIN, cfg=triage.TriageConfig(weights={"sa": 0.9}))
+        assert a["triage_score"].iloc[0] != b["triage_score"].iloc[0]
 
 
 # ------------------------------------------------------------------- qsar
@@ -660,6 +727,23 @@ class TestCLI:
         assert r.returncode == 0, r.stderr
         df = pd.read_csv(out + ".csv")
         assert (df["n_alerts"] == 0).all()
+
+    def test_triage_weights_flag_end_to_end(self, sample_data, tmp_path):
+        out = str(tmp_path / "w")
+        r = self._run("triage", os.path.join(sample_data, "sample_triage_library.smi"),
+                      "-o", out, "--weights", "qed=0.6", "alerts=0.4", "--show", "3")
+        assert r.returncode == 0, r.stderr
+        summary = json.loads(open(out + "_summary.json").read())["summary"]
+        assert summary["weights_are_default"] is False
+        df = pd.read_csv(out + ".csv")
+        assert df["triage_score"].between(0, 100).all()
+        assert "custom weights" in open(out + ".html").read()
+
+    def test_triage_rejects_a_bad_weight_key(self, sample_data, tmp_path):
+        r = self._run("triage", os.path.join(sample_data, "sample_triage_library.smi"),
+                      "-o", str(tmp_path / "bad"), "--weights", "qedd=0.9")
+        assert r.returncode == 1
+        assert "unknown triage weight" in r.stderr
 
     def test_triage_bad_input_fails_cleanly(self, tmp_path):
         r = self._run("triage", "/nonexistent/file.smi", "-o", str(tmp_path / "x"))

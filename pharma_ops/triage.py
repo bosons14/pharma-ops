@@ -245,15 +245,83 @@ DEFAULT_WEIGHTS = {
 }
 
 
-def composite_score(row: dict, weights: dict | None = None) -> float:
+@dataclass(frozen=True)
+class WeightSet:
+    """The weighting a triage run actually used, and where it came from.
+
+    The score is documented as 0-100 and ``--min-score`` filters on that range,
+    so the weights have to sum to 1. Rather than trusting callers to arrange
+    that, ``resolve_weights`` normalises and records that it did: the range
+    then holds by construction, and the report can say which blend produced
+    the number instead of leaving a default 73.4 and a custom 73.4
+    indistinguishable.
+    """
+
+    weights: dict
+    is_default: bool
+    normalised: bool
+    raw_sum: float
+
+    def describe(self) -> str:
+        if self.is_default:
+            return "default weights: " + self._fmt()
+        note = self._fmt()
+        if self.normalised:
+            note += (
+                f" (rescaled from a total of {self.raw_sum:.3g} so the score stays "
+                "on 0-100; relative emphasis is unchanged)"
+            )
+        return "custom weights: " + note
+
+    def _fmt(self) -> str:
+        return ", ".join(f"{k} {v:.3g}" for k, v in self.weights.items())
+
+
+def resolve_weights(weights: dict | None = None) -> WeightSet:
+    """Validate and normalise a weighting, refusing anything unusable.
+
+    Unknown keys are rejected rather than ignored. They used to be merged in
+    and never read, so a typo such as ``{"qedd": 0.9}`` produced exactly the
+    default score and the caller had no way to tell their retuning had done
+    nothing.
+    """
+    if not weights:
+        return WeightSet(dict(DEFAULT_WEIGHTS), True, False, sum(DEFAULT_WEIGHTS.values()))
+
+    unknown = sorted(set(weights) - set(DEFAULT_WEIGHTS))
+    if unknown:
+        raise ValueError(
+            f"unknown triage weight(s) {unknown}; valid keys are "
+            f"{sorted(DEFAULT_WEIGHTS)}. Nothing was applied."
+        )
+    bad = sorted(k for k, v in weights.items() if not isinstance(v, (int, float)) or v < 0)
+    if bad:
+        raise ValueError(f"triage weight(s) {bad} must be non-negative numbers")
+
+    merged = {k: float(weights.get(k, DEFAULT_WEIGHTS[k])) for k in DEFAULT_WEIGHTS}
+    total = sum(merged.values())
+    if total <= 0:
+        raise ValueError("triage weights sum to zero; at least one must be positive")
+
+    normalised = abs(total - 1.0) > 1e-9
+    if normalised:
+        merged = {k: v / total for k, v in merged.items()}
+    return WeightSet(merged, False, normalised, total)
+
+
+def composite_score(row: dict, weights: dict | WeightSet | None = None) -> float:
     """A single 0-100 triage score, deliberately simple and auditable.
 
     It is a weighted blend of QED, synthetic accessibility, structural-alert
     burden, solubility class and rule-set violations. The weights are exposed
     so you can re-tune them for your own programme -- the default blend has no
     special authority, it is just a sane starting point for ranking.
+
+    Weights are resolved through ``resolve_weights``, so the 0-100 range holds
+    whatever is passed in.
     """
-    w = {**DEFAULT_WEIGHTS, **(weights or {})}
+    ws = weights if isinstance(weights, WeightSet) else resolve_weights(weights)
+    w = ws.weights
 
     qed = float(row.get("qed") or 0.0)  # already 0-1
 
@@ -291,6 +359,12 @@ class TriageConfig:
     drop_failed: bool = False
     alert_sets: Sequence[str] = ("PAINS", "BRENK", "NIH")
 
+    def __post_init__(self) -> None:
+        # Resolve once, at the boundary, so a bad weighting fails before any
+        # compound is scored rather than silently producing default-looking
+        # numbers.
+        self.weight_set = resolve_weights(self.weights)
+
 
 def screen_record(rec: MolRecord, cfg: TriageConfig | None = None) -> dict:
     cfg = cfg or TriageConfig()
@@ -321,7 +395,7 @@ def screen_record(rec: MolRecord, cfg: TriageConfig | None = None) -> dict:
         total += len(hits)
     row["n_alerts"] = total
 
-    row["triage_score"] = composite_score(row, cfg.weights)
+    row["triage_score"] = composite_score(row, cfg.weight_set)
     return row
 
 
@@ -347,11 +421,23 @@ def screen(
     return df
 
 
-def summarise(df: pd.DataFrame) -> dict:
+def summarise(df: pd.DataFrame, cfg: TriageConfig | None = None) -> dict:
+    """Summary statistics, including which weighting produced the scores.
+
+    ``cfg`` is optional for backwards compatibility; pass it so the summary
+    records the blend, since a score is not interpretable without it.
+    """
+    ws = (cfg or TriageConfig()).weight_set
+    provenance = {
+        "weights": {k: round(v, 4) for k, v in ws.weights.items()},
+        "weights_are_default": ws.is_default,
+        "weights_note": ws.describe(),
+    }
     ok = df[df.get("status", "ok") == "ok"] if "status" in df else df
     if ok.empty:
-        return {"n_input": len(df), "n_valid": 0}
+        return {"n_input": len(df), "n_valid": 0, **provenance}
     return {
+        **provenance,
         "n_input": len(df),
         "n_valid": len(ok),
         "n_failed": len(df) - len(ok),

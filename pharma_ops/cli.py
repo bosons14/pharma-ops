@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import html
 import json
 import logging
 import os
@@ -58,12 +59,28 @@ def _write_outputs(df: pd.DataFrame, summary: dict, out_prefix: str,
 
 
 def cmd_triage(args: argparse.Namespace) -> int:
-    from .triage import TriageConfig, screen, summarise
+    from .triage import DEFAULT_WEIGHTS, TriageConfig, screen, summarise
 
-    cfg = TriageConfig(drop_failed=args.drop_failed)
+    weights = None
+    if args.weights:
+        weights = {}
+        for item in args.weights:
+            key, _, val = item.partition("=")
+            if not _:
+                raise ValueError(
+                    f"--weights expects key=value pairs, got {item!r}; "
+                    f"valid keys are {sorted(DEFAULT_WEIGHTS)}"
+                )
+            try:
+                weights[key.strip()] = float(val)
+            except ValueError:
+                raise ValueError(f"--weights value for {key!r} is not a number: {val!r}") from None
+
+    # TriageConfig validates the weighting here, before any compound is scored.
+    cfg = TriageConfig(drop_failed=args.drop_failed, weights=weights)
     df = screen(args.library, smiles_col=args.smiles_col, id_col=args.id_col,
                 cfg=cfg, limit=args.limit)
-    summary = summarise(df)
+    summary = summarise(df, cfg)
 
     if args.min_score is not None and "triage_score" in df:
         before = len(df)
@@ -84,7 +101,12 @@ def cmd_triage(args: argparse.Namespace) -> int:
         "<b>ADMET columns are rules of thumb.</b> <code>esol_logs</code> is the Delaney ESOL "
         "regression; the absorption and BBB columns are TPSA/logP heuristics (Egan, Clark, "
         "Kelder). They correlate loosely with measured values and should be replaced by "
-        "measured or properly modelled data as soon as any exists."
+        "measured or properly modelled data as soon as any exists.",
+        # The score is meaningless without the blend that produced it, so the
+        # report states which one ran rather than describing the defaults.
+        f"<b>Scoring blend used in this run</b> — {html.escape(cfg.weight_set.describe())}. "
+        "The blend has no special authority; retune it with <code>--weights "
+        "qed=0.5 alerts=0.3</code> for your own programme.",
     ]
     written = _write_outputs(df, summary, args.out, "Compound triage",
                              f"{os.path.basename(args.library)}", cards, TRIAGE_COLS,
@@ -300,6 +322,9 @@ def build_parser() -> argparse.ArgumentParser:
     t.add_argument("--smiles-col", help="SMILES column name for CSV input")
     t.add_argument("--id-col", help="identifier column name for CSV input")
     t.add_argument("--min-score", type=float, help="keep only compounds at or above this triage score")
+    t.add_argument("--weights", nargs="+", metavar="KEY=VALUE",
+                   help="retune the composite score, e.g. --weights qed=0.5 alerts=0.3; "
+                        "keys: qed, sa, alerts, solubility, rules. Rescaled to keep the 0-100 range")
     t.add_argument("--alert-free", action="store_true", help="keep only compounds with zero structural alerts")
     t.add_argument("--top", type=int, help="keep only the top N after ranking")
     t.add_argument("--limit", type=int, help="read at most N compounds from the input")
