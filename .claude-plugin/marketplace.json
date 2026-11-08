@@ -10,7 +10,7 @@
       "name": "pharma-ops",
       "source": "./",
       "description": "Early-stage drug discovery: compound triage and ADMET proxies, target-to-hit QSAR from ChEMBL, and AutoDock Vina virtual screening.",
-      "version": "0.1.3",
+      "version": "0.1.4",
       "category": "science"
     }
   ]
